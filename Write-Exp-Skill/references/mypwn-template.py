@@ -1,77 +1,131 @@
+# pyright: reportWildcardImportFromLibrary=false
+# ruff: noqa: F403, F405
 from Mypwn import *
-from libcfind import *
+from pwn import process
+# from libcfind import *  # Uncomment only when you really resolve unknown libc from a leak
 
-# ================= 配置 =================
+
 FILE_NAME = "./pwn"
-LIBC_PATH = None  # 如果没有则设为 None
-REMOTE_TARGET = "localhost:24753"
-REMOTE_TARGET = None  # 本地调试时取消注释此行
+LIBC_PATH = None
+# REMOTE_TARGET = ("127.0.0.1", 9999)
+REMOTE_TARGET = None
 
-# ================= 初始化 =================
-# init 自动处理：
-# 1. 有 Remote 则连远程，无 Remote 则启动本地进程
-# 2. debug=True 时自动配置日志和 GDB 环境
-io, elf, libc, GDB, shell = init(
+IS_SSL = False
+LOCAL_ARGV = None
+
+src = """
+
+"""
+
+io = None
+s = sl = sa = sla = rcv = rcu = shell = None
+
+init(
     binary_path=FILE_NAME,
-    target=REMOTE_TARGET,
     libc_path=LIBC_PATH,
-    debug=True,
-    IsBomb=False,
 )
 
-# 获取简写函数 (s, sl, sa, sla, rcv, rcu)
-# 自动绑定了 io，直接用 sla(b">", b"1") 即可
-# s, sl, sa, sla, rcv, rcu = get_dynamic_wrappers()
-s, sl, sa, sla, rcv, rcu = get_static_wrappers(io)
-
-# 获取架构相关打包函数 (unpk, dopk) 和字长
+logHex, lg, info, debug = get_log_function()
 unpk, dopk, word_size = Tool.get_arch_packer(elf)
 itb, bti = Tool.get_byte_packer()
 
-# 获取 log 相关函数
-logHex, log, info, debug = get_log_function()
-hexlog = lambda data: logHex(data, eval(data))
-
-# 获取 set log level 函数
-set_info, set_debug = get_loglevel_function()
-
 
 def dbg():
-    GDB()
+    if src.strip():
+        GDB(io, scripts=src)
+    else:
+        GDB(io)
     pause()
 
 
-# ================= 交互函数 =================
-def cmd(chs):
-    check_str = b"choice:"
-    sla(check_str, itb(chs))
+def bind():
+    global s, sl, sa, sla, rcv, rcu, shell
+    s = lambda data: io.send(data)
+    sl = lambda data: io.sendline(data)
+    sa = lambda delim, data: io.sendafter(delim, data)
+    sla = lambda delim, data: io.sendlineafter(delim, data)
+    rcv = lambda num=4096: io.recv(num)
+    rcu = lambda delim, drop=False: io.recvuntil(delim, drop)
+    shell = lambda: io.interactive()
 
 
-# def add(size, content=None):
-#     if content is None:
-#         content = b"A"
-#     pass
-def add(content, size=None):
-    if size is None:
-        size = len(content)
-    # TODO: 填充题目的 add 逻辑
-    raise NotImplementedError
+def start():
+    global io
+
+    if REMOTE_TARGET is None:
+        if LOCAL_ARGV is None:
+            io = iopen(binary=FILE_NAME, libc_path=LIBC_PATH)
+            return
+
+        io = process(LOCAL_ARGV)
+        bind()
+        return
+
+    io = iopen(
+        target=REMOTE_TARGET,
+        binary=FILE_NAME,
+        libc_path=LIBC_PATH,
+        ssl=IS_SSL,
+    )
 
 
-def edit(idx, payload):
-    # TODO: 填充题目的 edit 逻辑
-    raise NotImplementedError
+# ================= 壳准备 / 上传 =================
+# def prep(expect=b"$ ", timeout=60, disable_echo=False):
+#     prepare_shell(io, expect=expect, timeout=timeout, disable_echo=disable_echo)
+#
+# TERM_REPLY = make_terminal_reply()
+#
+# def upload_exp(local_path="./exp", remote_path="/tmp/exp", argv=""):
+#     return upload_and_run(io, local_path, remote_path=remote_path, argv=argv, timeout=30.0)
+#
+# def run_exp_wait(remote_path="/tmp/exp", argv=""):
+#     return execute_and_wait(io, remote_path, argv=argv, timeout=60, terminal_reply=TERM_REPLY)
+#
+# def run_exp_manual(remote_path="/tmp/exp"):
+#     execute(io, remote_path)
+#     data = io.recvrepeat(2)
+#     return data
 
 
-def dele(idx):
-    # TODO: 填充题目的 dele 逻辑
-    raise NotImplementedError
+# ================= 协议函数 =================
+# def cmd(ch):
+#     sl(itb(ch))
+#
+# def add(idx, size, data=b"A"):
+#     cmd(1)
+#     sl(itb(idx))
+#     sl(itb(size))
+#     sa(b"data: ", data)
+#
+# def edit(idx, data):
+#     cmd(2)
+#     sl(itb(idx))
+#     sa(b"data: ", data)
+#
+# def show(idx):
+#     cmd(3)
+#     sl(itb(idx))
+#     return rcu(b"1. ", drop=True)
+#
+# def dele(idx):
+#     cmd(4)
+#     sl(itb(idx))
 
 
-def show(idx):
-    # TODO: 填充题目的 show 逻辑
-    raise NotImplementedError
+def exploit():
+    start()
+
+    # leak = show(0)
+    # libc.address = unpk(leak[:6]) - 0x123456
+    # heap_base = unpk(leak[8:14]) - 0x260
+    # logHex("libc", libc.address)
+    # logHex("heap", heap_base)
+    # puts_addr = unpk(leak[:6])
+    # db = LibcSearcher("puts", puts_addr)
+    # libc.address = puts_addr - db.symbols["puts"]
+
+    shell()
 
 
-# ================= exploit =================
-shell()
+if __name__ == "__main__":
+    exploit()
