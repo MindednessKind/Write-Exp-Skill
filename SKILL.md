@@ -112,6 +112,7 @@ libc.address = puts_addr - db.symbols["puts"]
 - For terminals that emit cursor-position queries such as `\x1b[6n`, prefer `terminal_reply=make_terminal_reply()` or a custom reply map before writing target-specific recv hacks.
 - Keep shell upload logic separate from the memory-corruption primitive so iteration stays easy.
 - If a remote shell needs special decoders, custom probes, or setup commands, use the uploader module knobs first before writing a one-off uploader.
+- Prefer direct decoder commands such as `base64 -d`, `gzip -d -c`, or `openssl base64 -d -A` when you override uploader behavior. Do not switch to `busybox ...` decoder wrappers unless the user explicitly asks for that environment.
 
 ## Output Expectations
 
