@@ -10,7 +10,10 @@ LIBC_PATH = None
 # REMOTE_TARGET = ("127.0.0.1", 9999)
 REMOTE_TARGET = None
 
+PACK_ARCH = None  # Set to "amd64" or "i386" when FILE_NAME is None.
+
 IS_SSL = False
+SNI_HOST = None
 LOCAL_ARGV = None
 
 src = """
@@ -25,8 +28,22 @@ init(
     libc_path=LIBC_PATH,
 )
 
+
+class _PackerArch:
+    def __init__(self, arch):
+        self.arch = arch
+
+
+def resolve_packers():
+    if elf is not None:
+        return Tool.get_arch_packer(elf)
+    if PACK_ARCH in ("amd64", "i386"):
+        return Tool.get_arch_packer(_PackerArch(PACK_ARCH))
+    raise ValueError("Set FILE_NAME or PACK_ARCH before using Tool.get_arch_packer().")
+
+
 logHex, lg, info, debug = get_log_function()
-unpk, dopk, word_size = Tool.get_arch_packer(elf)
+unpk, dopk, word_size = resolve_packers()
 itb, bti = Tool.get_byte_packer()
 
 
@@ -47,27 +64,6 @@ def bind():
     rcv = lambda num=4096: io.recv(num)
     rcu = lambda delim, drop=False: io.recvuntil(delim, drop)
     shell = lambda: io.interactive()
-
-
-def start():
-    global io
-
-    if REMOTE_TARGET is None:
-        if LOCAL_ARGV is None:
-            io = iopen(binary=FILE_NAME, libc_path=LIBC_PATH)
-            return
-
-        io = process(LOCAL_ARGV)
-        bind()
-        return
-
-    io = iopen(
-        target=REMOTE_TARGET,
-        binary=FILE_NAME,
-        libc_path=LIBC_PATH,
-        ssl=IS_SSL,
-    )
-
 
 # ================= 壳准备 / 上传 =================
 # def prep(expect=b"$ ", timeout=60, disable_echo=False):
@@ -113,7 +109,30 @@ def start():
 
 
 def exploit():
-    start()
+    global io
+
+    if REMOTE_TARGET is None:
+        if LOCAL_ARGV is None:
+            io = iopen(binary=FILE_NAME, libc_path=LIBC_PATH)
+        else:
+            io = process(LOCAL_ARGV)
+            bind()
+    else:
+        if SNI_HOST is None:
+            io = iopen(
+                target=REMOTE_TARGET,
+                binary=FILE_NAME,
+                libc_path=LIBC_PATH,
+                ssl=IS_SSL,
+            )
+        else:
+            io = iopen(
+                target=REMOTE_TARGET,
+                binary=FILE_NAME,
+                libc_path=LIBC_PATH,
+                ssl=IS_SSL,
+                sni=SNI_HOST,
+            )
 
     # leak = show(0)
     # libc.address = unpk(leak[:6]) - 0x123456
@@ -122,7 +141,9 @@ def exploit():
     # logHex("heap", heap_base)
     # puts_addr = unpk(leak[:6])
     # db = LibcSearcher("puts", puts_addr)
-    # libc.address = puts_addr - db.symbols["puts"]
+    # libc_base = puts_addr - db.symbols["puts"]
+    # system_addr = libc_base + db.dump("system")
+    # binsh_addr = libc_base + db.dump("str_bin_sh")
 
     shell()
 

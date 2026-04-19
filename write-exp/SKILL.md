@@ -26,10 +26,11 @@ Use this skill when the exploit should read like the user's normal hand-written 
 - Add optional knobs only when the target needs them, such as `IS_SSL`, `SNI_HOST`, `LOCAL_ARGV`, or a GDB `src` snippet.
 - Call `init(...)` to set up `elf`, `libc`, `GDB`, and syscall helpers. Do not assume `init(...)` returns `io`, `elf`, or wrappers.
 - Prefer `iopen(...)` when it can launch the target cleanly, because it injects `io`, `s`, `sl`, `sa`, `sla`, `rcv`, `rcu`, and `shell` into globals.
+- Do not introduce a fresh `start()` helper in new scripts. Open the tube directly where the exploit begins, typically with `io = iopen(...)`, and only keep a legacy `start()` when patching an older board that already depends on it.
 - For TLS remotes, prefer `iopen(..., ssl=True, sni=host)` or `iopen(..., ssl=True, sni=SNI_HOST)` when SNI matters. Keep `IsSSL=True` only when patching an older board that already uses the compatibility spelling.
 - If a custom local launcher is needed, such as `ld-linux`, a wrapper script, or unusual argv, start it manually and bind thin wrappers with a short local `bind()` helper that also exposes `shell = lambda: io.interactive()`.
 - For shell-based remote targets, prefer `prepare_shell(...)`, `upload(...)`, `execute(...)`, `execute_and_wait(...)`, and `upload_and_run(...)` from `Mypwn` before writing an ad-hoc base64 uploader.
-- Use `Tool.get_arch_packer(elf)` and `Tool.get_byte_packer()` instead of ad-hoc pack/unpack helpers.
+- Use `Tool.get_arch_packer(...)` and `Tool.get_byte_packer()` instead of ad-hoc pack/unpack helpers. For pure-remote boards, set `PACK_ARCH` explicitly before resolving packers.
 - Use `get_log_function()` for logging. Match the user's local naming, commonly `logHex, lg, info, debug`.
 - Keep `dbg()` as `GDB(io)` plus `pause()`, or `GDB(io, scripts=src)` when the board already carries a local GDB script string.
 - End with `shell()` only when the exploit is meant to stay interactive. If the exploit prints the flag and exits by design, stop there. If a manual launcher branch does not bind `shell`, call `io.interactive()` directly instead of relying on a stub.
@@ -46,6 +47,7 @@ Start from the reference template and align it to the target immediately:
 - Preserve the user's remote toggle style:
   - `REMOTE_TARGET = "host:port"`
   - `REMOTE_TARGET = None`
+- For fresh scripts, keep connection setup inline in `exploit()` instead of wrapping it in a new `start()` helper. Prefer `io = iopen(...)` directly in the branch that needs it.
 - If the challenge already contains an `exp.py` in the user's style, use it as the highest-priority structural reference.
 - Remove placeholder helpers, dead imports, and template noise that the exploit does not need.
 
@@ -54,7 +56,7 @@ Start from the reference template and align it to the target immediately:
 Write thin helpers that mirror the real target:
 
 - Menu binaries: `cmd`, `add`, `edit`, `dele`, `show`, and similar wrappers.
-- Line-oriented services: small `start`, `bind`, `sendline`, or `recvuntil` helpers that match the prompts exactly.
+- Line-oriented services: small `bind`, `sendline`, or `recvuntil` helpers that match the prompts exactly.
 - Shell uploader or kernel helpers: short wrappers named after the primitive, not a generic framework layer. Reuse `prepare_shell(...)` and the uploader helpers before writing a custom uploader.
 
 Keep prompts and payloads in `bytes`. Use `itb()` for numeric menu arguments when that fits the board.
@@ -83,6 +85,7 @@ Before returning the exploit:
 
 - If `LIBC_PATH` is known, prefer it and avoid `libcfind`.
 - If libc is unknown but there is a meaningful leak path, add `from libcfind import *` and resolve it from the leak close to where the leak is parsed.
+- Do not assign `libc.address` unless `libc` is a real ELF object. If you only resolved offsets from `LibcSearcher`, keep them in locals such as `libc_base`, `system_addr`, and `binsh_addr`.
 - If libc is unknown and there is no leak yet, keep `LIBC_PATH = None` and write the current stage cleanly instead of inventing fake resolution logic.
 
 Minimal pattern:
@@ -92,12 +95,15 @@ from libcfind import *
 
 puts_addr = unpk(rcu(b"\x7f", drop=False)[-6:])
 db = LibcSearcher("puts", puts_addr)
-libc.address = puts_addr - db.symbols["puts"]
+libc_base = puts_addr - db.symbols["puts"]
+system_addr = libc_base + db.dump("system")
+binsh_addr = libc_base + db.dump("str_bin_sh")
 ```
 
 ## Launcher and Remote Notes
 
 - For SSL services, prefer `iopen(..., ssl=True)` and add `sni=host` when the endpoint expects SNI. Keep `IsSSL=True` only for compatibility with older boards.
+- Prefer direct connection setup like `io = iopen(...)` in the exploit path; do not add a new `start()` wrapper to fresh scripts.
 - If `iopen` is not flexible enough for that target, fall back to `remote(host, port, ssl=True, sni=host)` with the smallest possible wrapper layer.
 - If you must keep an older `init(..., target=..., IsBomb=False)` board layout, `ssl=True` also works on that legacy path. Prefer the split `init(...)` plus `iopen(...)` shape for fresh scripts.
 - For local runs that need a loader such as `./ld-linux-x86-64.so.2`, use `process([...])` and then bind wrappers manually, including a real `shell` helper.
