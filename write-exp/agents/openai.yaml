@@ -1,0 +1,4 @@
+interface:
+  display_name: "Write Exp"
+  short_description: "Write Mypwn-based pwn exploit skeletons"
+  default_prompt: "Use $write-exp to draft a pwntools exploit with my Mypwn template."

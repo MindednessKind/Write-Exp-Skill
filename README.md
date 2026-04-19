@@ -21,3 +21,7 @@ git -C "${CODEX_HOME:-$HOME/.codex}/skills/write-exp" pull --ff-only
 ```
 
 Restart Codex after updating.
+
+## cc-switch Compatibility
+
+This repository also includes mirrored skill directories at `Write-Exp-Skill/` and `write-exp/` for installers that expect a subdirectory instead of using the repo root directly.
