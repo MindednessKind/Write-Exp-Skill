@@ -3,10 +3,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WRITE_WP = ROOT / "write-wp"
-WRITE_WP_MIRROR = ROOT / "Write-WP-Skill"
-WRITE_WP_SHARED = ROOT / "_shared" / "write-wp"
-WRITE_WP_MARKETPLACE = ROOT / "skills" / "write-wp"
+WRITE_WP = ROOT / "skills" / "write-wp"
 
 
 def _read(path: Path) -> str:
@@ -19,27 +16,6 @@ class WriteWpContractTests(unittest.TestCase):
         self.assertTrue((WRITE_WP / "agents/openai.yaml").is_file())
         self.assertTrue((WRITE_WP / "references/style-signals.md").is_file())
         self.assertTrue((WRITE_WP / "references/sample-library/index.md").is_file())
-
-    def test_write_wp_compatibility_directory_matches_primary(self):
-        mirrored_paths = [
-            "SKILL.md",
-            "agents/openai.yaml",
-            "references/style-signals.md",
-            "references/sample-library/index.md",
-        ]
-        for rel_path in mirrored_paths:
-            self.assertEqual(
-                _read(WRITE_WP / rel_path),
-                _read(WRITE_WP_SHARED / rel_path),
-            )
-            self.assertEqual(
-                _read(WRITE_WP / rel_path),
-                _read(WRITE_WP_MIRROR / rel_path),
-            )
-            self.assertEqual(
-                _read(WRITE_WP / rel_path),
-                _read(WRITE_WP_MARKETPLACE / rel_path),
-            )
 
     def test_write_wp_skill_references_primary_and_expanded_corpus(self):
         text = _read(WRITE_WP / "SKILL.md")
