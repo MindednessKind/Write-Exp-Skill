@@ -9,6 +9,7 @@ SYNCED_FILES = [
     Path("references/mypwn-template.py"),
     Path("agents/openai.yaml"),
 ]
+SHARED = ROOT / "_shared" / "write-exp"
 
 
 def _read(path: Path) -> str:
@@ -19,8 +20,13 @@ class SkillContractTests(unittest.TestCase):
     def test_compatibility_directories_match_root(self):
         for rel_path in SYNCED_FILES:
             root_text = _read(ROOT / rel_path)
+            self.assertEqual(root_text, _read(SHARED / rel_path))
             for mirror in MIRRORS:
                 self.assertEqual(_read(mirror / rel_path), root_text)
+
+    def test_repository_contains_no_symlinks(self):
+        symlinks = [path for path in ROOT.rglob("*") if path.is_symlink()]
+        self.assertEqual(symlinks, [])
 
     def test_skill_bans_new_start_helper_and_prefers_inline_iopen(self):
         text = _read(ROOT / "SKILL.md")
