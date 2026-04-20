@@ -1,0 +1,23 @@
+{
+  "name": "mindedness-skills",
+  "owner": {
+    "name": "Mindedness",
+    "email": "mindednesskind@gmail.com"
+  },
+  "metadata": {
+    "description": "Pwn exploit writing and CTF writeup skills by Mindedness",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "mindedness-skills",
+      "description": "Exploit drafting and writeup generation skills",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/write-exp",
+        "./skills/write-wp"
+      ]
+    }
+  ]
+}

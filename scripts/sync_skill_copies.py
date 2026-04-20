@@ -26,7 +26,7 @@ def sync_write_exp() -> None:
         ROOT / "references" / "mypwn-template.py",
     )
 
-    for mirror in [ROOT / "write-exp", ROOT / "Write-Exp-Skill"]:
+    for mirror in [ROOT / "write-exp", ROOT / "Write-Exp-Skill", ROOT / "skills" / "write-exp"]:
         copy_file(shared / "SKILL.md", mirror / "SKILL.md")
         copy_file(shared / "agents" / "openai.yaml", mirror / "agents" / "openai.yaml")
         copy_file(
@@ -38,7 +38,7 @@ def sync_write_exp() -> None:
 def sync_write_wp() -> None:
     shared = ROOT / "_shared" / "write-wp"
 
-    for mirror in [ROOT / "write-wp", ROOT / "Write-WP-Skill"]:
+    for mirror in [ROOT / "write-wp", ROOT / "Write-WP-Skill", ROOT / "skills" / "write-wp"]:
         copy_tree(shared, mirror)
 
 

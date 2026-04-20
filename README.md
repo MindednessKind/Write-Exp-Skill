@@ -15,6 +15,14 @@ git clone https://github.com/MindednessKind/Write-Exp-Skill.git "${CODEX_HOME:-$
 
 Restart Codex after cloning.
 
+### Register as Marketplace
+
+If your installer supports Claude-style skill marketplaces, add this repository as a marketplace:
+
+```bash
+/plugin marketplace add MindednessKind/Write-Exp-Skill
+```
+
 ## Additional Skill
 
 This repository also ships `write-wp/` as a separate skill directory.
@@ -48,6 +56,7 @@ Restart Codex after updating.
 - `write-wp/` is a standalone sibling skill with its own references and sample library.
 - `Write-WP-Skill/` is the compatibility mirror for `write-wp/`.
 - `Write-Exp-Skill/` and `write-exp/` are compatibility mirrors for installers that expect a nested skill directory.
+- `skills/write-exp/` and `skills/write-wp/` are marketplace-facing physical copies for multi-skill scanners.
 - The `write-exp` canonical source lives under `_shared/write-exp/`.
 - The `write-wp` canonical source lives under `_shared/write-wp/`.
 - The install-facing directories are all physical files and directories; this repository intentionally avoids symlinks because some installers do not follow them.
@@ -65,5 +74,7 @@ This updates:
 - root `write-exp` files
 - `write-exp/`
 - `Write-Exp-Skill/`
+- `skills/write-exp/`
 - `write-wp/`
 - `Write-WP-Skill/`
+- `skills/write-wp/`

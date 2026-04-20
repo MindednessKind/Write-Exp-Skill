@@ -1,0 +1,4 @@
+interface:
+  display_name: "Write Exp"
+  short_description: "Write human-looking Mypwn pwn exploits"
+  default_prompt: "Use $write-exp to draft or humanize a pwntools exploit in my actual Mypwn board style."

@@ -3,7 +3,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MIRRORS = [ROOT / "write-exp", ROOT / "Write-Exp-Skill"]
+MIRRORS = [ROOT / "write-exp", ROOT / "Write-Exp-Skill", ROOT / "skills" / "write-exp"]
 SYNCED_FILES = [
     Path("SKILL.md"),
     Path("references/mypwn-template.py"),

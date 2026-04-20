@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WRITE_WP = ROOT / "write-wp"
 WRITE_WP_MIRROR = ROOT / "Write-WP-Skill"
 WRITE_WP_SHARED = ROOT / "_shared" / "write-wp"
+WRITE_WP_MARKETPLACE = ROOT / "skills" / "write-wp"
 
 
 def _read(path: Path) -> str:
@@ -35,6 +36,10 @@ class WriteWpContractTests(unittest.TestCase):
                 _read(WRITE_WP / rel_path),
                 _read(WRITE_WP_MIRROR / rel_path),
             )
+            self.assertEqual(
+                _read(WRITE_WP / rel_path),
+                _read(WRITE_WP_MARKETPLACE / rel_path),
+            )
 
     def test_write_wp_skill_references_primary_and_expanded_corpus(self):
         text = _read(WRITE_WP / "SKILL.md")
@@ -52,6 +57,12 @@ class WriteWpContractTests(unittest.TestCase):
         self.assertIn("### Kernel", text)
         self.assertIn("study.heap=", text)
         self.assertIn("study.stack=", text)
+
+    def test_marketplace_manifest_lists_both_skills(self):
+        text = _read(ROOT / ".claude-plugin" / "marketplace.json")
+
+        self.assertIn("./skills/write-exp", text)
+        self.assertIn("./skills/write-wp", text)
 
 
 if __name__ == "__main__":
