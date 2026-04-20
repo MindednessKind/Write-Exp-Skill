@@ -1,0 +1,182 @@
+---
+title: 深入 Ptmalloc2
+date: 2025-04-22T21:04:36+08:00
+lastmod: 2025-04-23T00:57:46+08:00
+---
+
+# 深入 Ptmalloc2
+
+# 简述
+
+仔细想一下，任何堆的实现都需要从以下两个角度考虑相应的问题
+
+- 宏观角度
+
+  - 创建堆
+  - 堆初始化
+  - 删除堆
+- 微观角度
+
+  - 申请内存块
+  - 释放内存块
+
+当然，这些都是比较高层面的想法，不同的堆的底层实现会有所不同。
+
+# [基础操作](深入%20Ptmalloc2/基础操作.md)
+
+> # [Unlink](深入%20Ptmalloc2/基础操作/Unlink.md)
+>
+>> Unlink 用来将一个双向链表 ( 只存储空闲的 chunk ) 中的一个元素取出来，可能在以下地方使用
+>>
+>> - malloc
+>>
+>>   - 从恰好大小合适的 Large Bin 中获取 chunk
+>>
+>>     - 这里需要注意的是 fastbin 与small bin 就没有使用 unlink,这就是漏洞会经常出现在它们俩这里的原因。
+>>     - 一次遍历处理 unsorted bin 时是没有使用 unlink 的
+>>   - 从Size 大于请求的chunk所在的bin 的 bin中取出chunk
+>> - free
+>>
+>>   - 向后合并，合并物理相邻的低地址空闲chunk
+>>   - 向前合并，合并物理相邻的高地址空闲chunk  ( Top Chunk 除外 )
+>> - malloc_consolidate
+>>
+>>   - 向后合并，合并物理相邻的低地址空闲chunk
+>>   - 向前合并，合并物理相邻的高地址空闲chunk  ( Top Chunk 除外 )
+>> - realloc
+>>
+>>   - 向前扩展，合并物理相邻高地址的空闲chunk ( Top Chunk 除外 )
+>>
+>> 由于在实际程序中， Unlink方法使用极其频繁，所以其被实现为了一个宏，如下:
+>>
+>> ```c
+>> /* Take a chunk off a bin list */
+>> // unlink p
+>> #define unlink(AV, P, BK, FD) {                                            
+>>     // 由于 P 已经在双向链表中，所以有两个地方记录其大小，所以检查一下其大小是否一致。
+>>     if (__builtin_expect (chunksize(P) != prev_size (next_chunk(P)), 0))      
+>>       malloc_printerr ("corrupted size vs. prev_size");
+>>                
+>>     FD = P->fd;                                                                      
+>>     BK = P->bk;  
+>>                                                                     
+>>     // 防止攻击者简单篡改空闲的 chunk 的 fd 与 bk 来实现任意写的效果。
+>>     if (__builtin_expect (FD->bk != P || BK->fd != P, 0))                      
+>>       malloc_printerr (check_action, "corrupted double-linked list", P, AV);  
+>>     else {                                                                     
+>>         FD->bk = BK;                                                              
+>>         BK->fd = FD;                                                              
+>>         // 下面主要考虑 P 对应的 nextsize 双向链表的修改
+>>         if (!in_smallbin_range (chunksize_nomask (P))                              
+>>             // 如果P->fd_nextsize为 NULL，表明 P 未插入到 nextsize 链表中。
+>>             // 那么其实也就没有必要对 nextsize 字段进行修改了。
+>>             //  ⭐这里没有去判断 bk_nextsize 字段，可能会出问题。
+>>             && __builtin_expect (P->fd_nextsize != NULL, 0)) {                      
+>>             // 类似于小的 chunk 的检查思路
+>>             if (__builtin_expect (P->fd_nextsize->bk_nextsize != P, 0)              
+>>                 || __builtin_expect (P->bk_nextsize->fd_nextsize != P, 0))    
+>>               malloc_printerr (check_action,                                      
+>>                                "corrupted double-linked list (not small)",    
+>>                                P, AV);                                              
+>>             // 这里说明 P 已经在 nextsize 链表中了。
+>>             // 如果 FD 没有在 nextsize 链表中
+>>             if (FD->fd_nextsize == NULL) {                                      
+>>                 // 如果 nextsize 串起来的双链表只有 P 本身，那就直接拿走 P
+>>                 // 令 FD 为 nextsize 串起来的
+>>                 if (P->fd_nextsize == P)                                      
+>>                   FD->fd_nextsize = FD->bk_nextsize = FD;                      
+>>                 else {                                                              
+>>                 // 否则我们需要将 FD 插入到 nextsize 形成的双链表中
+>>                     FD->fd_nextsize = P->fd_nextsize;                              
+>>                     FD->bk_nextsize = P->bk_nextsize;                              
+>>                     P->fd_nextsize->bk_nextsize = FD;                              
+>>                     P->bk_nextsize->fd_nextsize = FD;                              
+>>                   }                                                              
+>>               } else {                                                              
+>>                 // 如果在的话，直接拿走即可
+>>                 P->fd_nextsize->bk_nextsize = P->bk_nextsize;                      
+>>                 P->bk_nextsize->fd_nextsize = P->fd_nextsize;                      
+>>               }                                                                      
+>>           }                                                                      
+>>       }                                                                              
+>> }
+>> ```
+>> 这里我们以 SmallBin的Unlink举例。	LargeBin的Unlink操作与其类似，但多出了一个对于NextSize的处理
+>>
+>> ![image](assets/image-20250402160412-hdren7j.png)
+>>
+>> 可以看到，在整个Unlink操作中，**P的 fd及bk指针都没有发生变化**，但当我们去遍历整个双向链表是，已经无法遍历到P了。
+>>
+>> 这一点对于我们是极其有利的，我们在一些特定的时候，可以使用这个方法来泄露地址
+>>
+>> - Libc地址
+>>
+>>   - P位于双向链表的头部，bk泄露
+>>   - P位于双向链表的尾部，fd泄露
+>>   - 双向链表只包含一个空闲chunk时，P位于双向链表中，此时fd和bk都可以泄露
+>> - 堆地址 （双向链表包含多个空闲chunk）
+>>
+>>   - P位于双向链表头部，bk泄露
+>>   - P位于双向链表尾部，fd泄露
+>>   - P位于双向链表中，fd和bk均可泄露
+>>
+>>> Tips
+>>>
+>>> - 这里的头部指的是 bin 的 fd 指向的 chunk，即双向链表中最先加入的chunk
+>>> - 这里的尾部指的是 bin 的 bk 指向的 chunk，即双向链表中最先加入的chunk
+>>>
+>>
+>> 同时，无论是对于 fd，bk还是 fd_nextsize ，bk_nextsize，程序都会检测 fd 和 bk 是否满足对应的要求
+>>
+>> ```c
+>> // fd bk
+>> if (__builtin_expect (FD->bk != P || BK->fd != P, 0))                      \
+>>   malloc_printerr (check_action, "corrupted double-linked list", P, AV);  \
+>>
+>>   // next_size related
+>>               if (__builtin_expect (P->fd_nextsize->bk_nextsize != P, 0)              \
+>>                 || __builtin_expect (P->bk_nextsize->fd_nextsize != P, 0))    \
+>>               malloc_printerr (check_action,                                      \
+>>                                "corrupted double-linked list (not small)",    \
+>>                                P, AV);
+>> ```
+>> 看起来是比较正常。 我们以 fd 以及 bk 为例， P的 forward chunk 的 bk 自然而然是P，同样的，P的 backward chunk 的 fd 自然也是P。
+>>
+>> 如若没有相应的检查的话，我们就可以修改 P 的fd以及bk，从而轻易地达到任意地址写的效果。( 可以参考漏洞利用部分的 Unlink )
+>>
+>> **注意： 堆的第一个 chunk 所记录的 prev_inuse 是默认为 1 的**
+>>
+>
+> # [Malloc_Printerr](深入%20Ptmalloc2/基础操作/Malloc_Printerr.md)
+>
+>> Glibc Malloc 检测到错误时，会调用 `malloc_printerr` 函数
+>>
+>> ```c
+>> static void malloc_printerr(const char *str) {
+>>   __libc_message(do_abort, "%s\n", str);
+>>   __builtin_unreachable();
+>> }
+>> ```
+>> 主要会调用 `__libc_nessage`​ 来执行 `abort` 函数，如下
+>>
+>> ```c
+>>   if ((action & do_abort)) {
+>>     if ((action & do_backtrace))
+>>       BEFORE_ABORT(do_abort, written, fd);
+>>
+>>     /* Kill the application.  */
+>>     abort();
+>>   }
+>> ```
+>> 在 `abort` 函数里，glibc版本低于2.23时，会 fflush stream
+>>
+>> ```c
+>>   /* Flush all streams.  We cannot close them now because the user
+>>      might have registered a handler for SIGABRT.  */
+>>   if (stage == 1)
+>>     {
+>>       ++stage;
+>>       fflush (NULL);
+>>     }
+>> ```
+>>

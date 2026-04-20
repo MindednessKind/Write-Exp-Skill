@@ -1,0 +1,418 @@
+---
+title: Malloc_chunk
+date: 2024-12-13T17:40:22+08:00
+lastmod: 2025-04-05T13:12:35+08:00
+tags:
+  - 'heap'
+  - 'knowledge'
+---
+
+# Malloc_chunk
+
+# [概述](Malloc_chunk/概述.md)
+
+> 在程序的执行过程中，我们称由 malloc 申请的内存为 `chunk` ，这块内存在 ptmalloc 内部用 malloc_chunk 结构体来表示。
+>
+> 当程序申请的 `chunk` 被 free 后，会被加入到相应的空闲管理列表中。
+>
+> 非常有意思的是，无论一个 `chunk` 的大小如何，处于分配状态还是释放状态，他们都使用一个统一的结构——虽然他们使用了同一个数据结构，但是根据是否被释放，它们的表现形式会有所不同。
+>
+> malloc_chunk是每个 chunk 的头部
+>
+> 其malloc_chunk的结构如下
+>
+> ```c
+> /*
+>   This struct declaration is misleading (but accurate and necessary).
+>   It declares a "view" into memory allowing access to necessary
+>   fields at known offsets from a given base. See explanation below.
+> */
+> struct malloc_chunk {
+>
+>   INTERNAL_SIZE_T      prev_size;  /* Size of previous chunk (if free).  */
+>   INTERNAL_SIZE_T      size;       /* Size in bytes, including overhead. */
+>
+>   struct malloc_chunk* fd;         /* double links -- used only if free. */
+>   struct malloc_chunk* bk;
+>
+>   /* Only used for large blocks: pointer to next larger size.  */
+>   struct malloc_chunk* fd_nextsize; /* double links -- used only if free. */
+>   struct malloc_chunk* bk_nextsize;
+> };
+> ```
+>
+>> 我们在此给出一些必要的宏的定义
+>>
+>> ```c
+>> /* INTERNAL_SIZE_T is the word-size used for internal bookkeeping of
+>>    chunk sizes.
+>>    The default version is the same as size_t.
+>>    While not strictly necessary, it is best to define this as an
+>>    unsigned type, even if size_t is a signed type. This may avoid some
+>>    artificial size limitations on some systems.
+>>    On a 64-bit machine, you may be able to reduce malloc overhead by
+>>    defining INTERNAL_SIZE_T to be a 32 bit `unsigned int' at the
+>>    expense of not being able to handle more than 2^32 of malloced
+>>    space. If this limitation is acceptable, you are encouraged to set
+>>    this unless you are on a platform requiring 16byte alignments. In
+>>    this case the alignment requirements turn out to negate any
+>>    potential advantages of decreasing size_t word size.
+>>    Implementors: Beware of the possible combinations of:
+>>      - INTERNAL_SIZE_T might be signed or unsigned, might be 32 or 64 bits,
+>>        and might be the same width as int or as long
+>>      - size_t might have different width and signedness as INTERNAL_SIZE_T
+>>      - int and long might be 32 or 64 bits, and might be the same width
+>>    To deal with this, most comparisons and difference computations
+>>    among INTERNAL_SIZE_Ts should cast them to unsigned long, being
+>>    aware of the fact that casting an unsigned int to a wider long does
+>>    not sign-extend. (This also makes checking for negative numbers
+>>    awkward.) Some of these casts result in harmless compiler warnings
+>>    on some systems.  */
+>> #ifndef INTERNAL_SIZE_T
+>> # define INTERNAL_SIZE_T size_t
+>> #endif
+>>
+>> /* The corresponding word size.  */
+>> #define SIZE_SZ (sizeof (INTERNAL_SIZE_T))
+>>
+>> /* The corresponding bit mask value.  */
+>> #define MALLOC_ALIGN_MASK (MALLOC_ALIGNMENT - 1)
+>>
+>> /* MALLOC_ALIGNMENT is the minimum alignment for malloc'ed chunks.  It
+>>    must be a power of two at least 2 * SIZE_SZ, even on machines for
+>>    which smaller alignments would suffice. It may be defined as larger
+>>    than this though. Note however that code and data structures are
+>>    optimized for the case of 8-byte alignment.  */
+>> #define MALLOC_ALIGNMENT (2 * SIZE_SZ < __alignof__ (long double) \
+>>               ? __alignof__ (long double) : 2 * SIZE_SZ)
+>> ```
+>>
+>
+>> 一般来说，`size_t`​会被定义为 `unsigned long`，在 64 位中是 64位无符号整数，在 32位中是 32位无符号整数。
+>>
+>
+> 下面我们来看 `chunk` 结构体，各个字段的具体的解释如下：
+>
+> - **prev_size**，如果该`chunk`​的物理相邻的前一地址 chunk ( 两个指针的地址差值为前一chunk的大小 ) 是空闲的话，那么该字段记录的是前一个 `chunk`​ 的大小 ( 包括 `chunk`​ 头 )。    否则，该字段可以用来存储物理相邻的前一个 chunk 的数据。这里的前一个 `chunk`​ 指的是较低地址的 `chunk`。
+> - **size**，该 `chunk`​ 的大小，大小必须是 `MALLOC_ALIGNMENT`​ 的整数倍。如果申请的内存大小不是 `MALLOC_ALIGNMENT`​ 的整数倍，会被转换为满足大小的最小的 `MALLOC_ALIGNMENT`​ 的倍数，这会通过 `request2size()` 宏来完成。
+>
+>   在32位系统中， `MALLOC_ALIGNMENT`​ 可能是 `4`​ 或者 `8`​ ；而在64位系统中， `MALLOC_ALIGNMENT`​ 只可能是 `8`​ 。该字段的低三个比特位对 `chunk` 的大小没有影响，他们从高到低分别表示
+>
+>   - NON_MAIN_ARENA    这一位记录当前 `chunk`​ 是否属于主线程，属于主线程标记为 `0`​ ，不属于主线程标记为 `1`.
+>   - IS_MAPPED    这一位记录前一个 `chunk` 是否是有mmap分配的.
+>   - PREV_INUSE    这一位记录前一个 `chunk`​ 块是否被分配。一般来说，堆中的第一个被分配的内存块的 size 字段的 P位 都会被设置为1，以便于防止访问前面的非法内存。当一个`chunk`​的 size 的 P位 为0时，我们能通过 `prev_size`​ 字段来获取上一个 `chunk`​ 的大小以及地址。这会方便程序进行 空闲的`chunk` 之间的合并。
+> - **fd、bk**，当 `chunk`​ 处于分配状态时，从 fd 字段开始就是用户的数据；当 `chunk` 处于空闲状态时，其字段会被添加到对应的空闲管理链表中，其字段含义如下
+>
+>   - **fd** 指向下一个 (非物理相邻) 空闲的 `chunk`
+>   - **bk** 指向上一个 (非物理相邻) 空闲的 `chunk`
+> - **fd_nextsize、bk_nextsize** 也是只有在 `chunk`​ 空闲时才会使用，不过其用于较大的 `chunk` 上 (Large Chunk)
+>
+>   - fd\_nextsize 指向前一个与当前 `chunk` 大小不同的第一个空闲块，不包含 bin 的头指针。
+>   - bk\_nextsize 指向后一个与当前 `chunk` 大小不同的第一个空闲块，不包含 bin 的头指针。
+>   - 一般空闲的  `large chunk`​ 在 fd 的遍历顺序中，按照由大到小的顺序排列。**这样做可以避免在寻找合适 chunk 时挨个遍历。**
+>
+>> 自 glibc-2.26 版本起，在32位glibc中，`MALLOC_ALIGNMENT`​ 宏的定义在编译时优先选择 `sysdeps/i386/malloc-alignment.h` 中的定义，该值定义为了一个常量：
+>>
+>> ```c
+>> #define MALLOC_ALIGNMENT 16
+>> ```
+>>
+>> 因此，对于自 glibc-2.26 起的32位 glibc 中，`MALLOC_ALIGNMENT`​ 并非基于 `SIZE_SZ`​ 计算的 `8`​ ，而是和64位glibc所用相同的 `16`
+>>
+>
+> 一个已经分配的 `chunk` 的样子如下
+>
+> ```c
+> chunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+>         |             Size of previous chunk, if unallocated (P clear)  |
+>         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+>         |             Size of chunk, in bytes                     |A|M|P|
+>   mem-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+>         |             User data starts here...                          .
+>         .                                                               .
+>         .             (malloc_usable_size() bytes)                      .
+> next    .                                                               |
+> chunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+>         |             (size of chunk, but used for application data)    |
+>         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+>         |             Size of next chunk, in bytes                |A|0|1|
+>         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+> ```
+>
+> **我们将前两个字段称为** **​`chunk header`​**​  **，后面的部分称为** **​`user data`​** 。
+>
+> **每次 malloc 申请得到的内存指针，其实指向** **​`user data`​**​ **的起始处。**
+>
+> 当一个 `chunk`​ 处于使用状态时，它的下一个 `chunk`​ 的 `prev_size`​ 域无效，所以下一个 `chunk`​ 的该部分也可以被当前的 `chunk`​ 使用。**这就是** **​`chunk`​**​ **中的空间复用**
+>
+> 一个被释放的`chunk`被记录在链表中 (可能是循环双向链表，也可能是单向链表)，具体结构如下
+>
+> ```c
+> chunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+>         |             Size of previous chunk, if unallocated (P clear)  |
+>         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+> `head:' |             Size of chunk, in bytes                     |A|0|P|
+>   mem-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+>         |             Forward pointer to next `chunk` in list           |
+>         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+>         |             Back pointer to previous `chunk` in list          |
+>         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+>         |             Unused space (may be 0 bytes long)                .
+>         .                                                               .
+>  next   .                                                               |
+> chunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+> `foot:' |             Size of chunk, in bytes                           |
+>         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+>         |             Size of next chunk, in bytes                |A|0|0|
+>         +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+> ```
+>
+> 可以发现，如果一个 `chunk` 处于 free 状态，那么会有两个位置记录相应的大小
+>
+> 1. 本身的size字段会记录
+> 2. 它后面的 `chunk` 会记录
+>
+> **在一般情况下，** 物理相邻的两个空闲的 `chunk`​ 会被合并为一个 `chunk`。
+>
+> 堆管理器会通过 prev_size 字段以及 size 字段来对两个物理相邻的空闲 `chunk` 块进行合并。
+>
+>> 特别的，我们对于堆有一些约束条件，我们在后面将会详细讲解并考虑
+>>
+>> ```c
+>> /*
+>>     The three exceptions to all this are:
+>>      1. The special chunk `top' doesn't bother using the
+>>     trailing size field since there is no next contiguous chunk
+>>     that would have to index off it. After initialization, `top'
+>>     is forced to always exist.  If it would become less than
+>>     MINSIZE bytes long, it is replenished.
+>>      2. Chunks allocated via mmap, which have the second-lowest-order
+>>     bit M (IS_MMAPPED) set in their size fields.  Because they are
+>>     allocated one-by-one, each must contain its own trailing size
+>>     field.  If the M bit is set, the other bits are ignored
+>>     (because mmapped chunks are neither in an arena, nor adjacent
+>>     to a freed chunk).  The M bit is also used for chunks which
+>>     originally came from a dumped heap via malloc_set_state in
+>>     hooks.c.
+>>      3. Chunks in fastbins are treated as allocated chunks from the
+>>     point of view of the chunk allocator.  They are consolidated
+>>     with their neighbors only in bulk, in malloc_consolidate.
+>> */
+>>
+>> Translate to Chinese：
+>> /* 
+>> 	所有这些规则有三个例外情况： 
+>> 	1. 特殊的内存块 top 无需使用尾部大小字段，因为不存在需要根据该字段进行索引的下一个连续内存块。
+>> 	初始化后，top 始终会存在。如果其长度小于 MINSIZE 字节，就会对其进行补充。 
+>> 	2. 通过 mmap 分配的内存块，其大小字段中设置了次低位的 M 位（IS_MMAPPED）。
+>> 	由于它们是逐个分配的，每个内存块都必须包含自己的尾部大小字段。
+>> 	如果 M 位被设置，则忽略其他位（因为通过 mmap 分配的内存块既不在某个内存区域中，也不与已释放的内存块相邻）。
+>> 	M 位还用于通过 hooks.c 中的 malloc_set_state 从转储堆中获取的内存块。 ``
+>> 	3. 从内存块分配器的角度来看，快速链表（fastbins）中的内存块被视为已分配的内存块。
+>> 	只有在 malloc_consolidate 函数中进行批量操作时，它们才会与其相邻的内存块进行合并。 
+>>
+>> */                        
+>> ```
+>>
+
+# [Chunk 相关宏](Malloc_chunk/Chunk%20相关宏.md)
+
+> # `chunk`chunk 与 mem 指针头部的转换
+>
+> mem 指向用户得到的内存的起始位置
+>
+> ```c
+> /* conversion from malloc headers to user pointers, and back */
+> #define chunk2mem(p) ((void *) ((char *) (p) + 2 * SIZE_SZ))
+> #define mem2chunk(mem) ((mchunkptr)((char *) (mem) -2 * SIZE_SZ))
+> ```
+> # 最小的chunk大小
+>
+> ```c
+> /* The smallest possible chunk */
+> #define MIN_CHUNK_SIZE (offsetof(struct malloc_chunk, fd_nextsize))
+> ```
+> 在这里， offsetof() 函数会计算出 fd_nextsize 在 malloc_chunk 中的便宜，说明最小的 chunk 至少要包含 bk 指针。
+>
+> # 最小申请的堆内存大小
+>
+> 用户最小申请的内存大小必须是 2*SIZE_SZ 的最小整数倍
+>
+>> Tip
+>>
+>> 就目前而看 MIN_CHUNK_SIZE 和 MINISIZE 大小是一致的，这样设置两个宏的目的推测是方便之后对malloc_chunk的修改
+>>
+>> ```c
+>> /* The smallest size we can malloc is an aligned minimal chunk */
+>> //MALLOC_ALIGN_MASK = 2 * SIZE_SZ -1
+>> #define MINSIZE                                                                \
+>>     (unsigned long) (((MIN_CHUNK_SIZE + MALLOC_ALIGN_MASK) &                   \
+>>                       ~MALLOC_ALIGN_MASK))
+>> ```
+>>
+>
+> # 检查分配给用户的内存是否对齐
+>
+> 2 * SIZE_SZ 大小对齐
+>
+> ```c
+> /* Check if m has acceptable alignment */
+> // MALLOC_ALIGN_MASK = 2 * SIZE_SZ -1
+> #define aligned_OK(m) (((unsigned long) (m) & MALLOC_ALIGN_MASK) == 0)
+>
+> #define misaligned_chunk(p)                                                    \
+>     ((uintptr_t)(MALLOC_ALIGNMENT == 2 * SIZE_SZ ? (p) : chunk2mem(p)) &       \
+>      MALLOC_ALIGN_MASK)
+> ```
+> # 请求字节数判断
+>
+> ```c
+> /*
+>    Check if a request is so large that it would wrap around zero when
+>    padded and aligned. To simplify some other code, the bound is made
+>    low enough so that adding MINSIZE will also not wrap around zero.
+>  */
+>
+> #define REQUEST_OUT_OF_RANGE(req)                                              \
+>     ((unsigned long) (req) >= (unsigned long) (INTERNAL_SIZE_T)(-2 * MINSIZE))
+> ```
+> # 将用户请求内存大小转为实际分配内存大小
+>
+> ```c
+> /* pad request bytes into a usable size -- internal version */
+> //MALLOC_ALIGN_MASK = 2 * SIZE_SZ -1
+> #define request2size(req)                                                      \
+>     (((req) + SIZE_SZ + MALLOC_ALIGN_MASK < MINSIZE)                           \
+>          ? MINSIZE                                                             \
+>          : ((req) + SIZE_SZ + MALLOC_ALIGN_MASK) & ~MALLOC_ALIGN_MASK)
+>
+> /*  Same, except also perform argument check */
+>
+> #define checked_request2size(req, sz)                                          \
+>     if (REQUEST_OUT_OF_RANGE(req)) {                                           \
+>         __set_errno(ENOMEM);                                                   \
+>         return 0;                                                              \
+>     }                                                                          \
+>     (sz) = request2size(req);
+> ```
+> 当一个 `chunk`​ 处于以分配状态时，它的物理相邻的下一个 `chunk`​ 的 prev_size 字段必然是无效的，故而这个字段就可以被当前这个 `chunk`​ 使用。 这就是 ptmalloc 中 `chunk` 间的复用。
+>
+> 具体流程如下
+>
+> 1. 首先利用 `REQUEST_OUT_OF_RANGE`​ 判断是否可以分配用户请求的字节大小的 `chunk`
+> 2. 之后，需要注意的是用户请求的字节是用来存储数据的，即 `chunk header` 后面的部分。
+>
+>    与此同时，由于 `chunk`​ 间复用，所以可以使用下一个 `chunk` 的 prev_size 字段。因此，这里只需要再添加 SIZE_SZ 大小即可完全存储内容。
+> 3. 由于系统中所允许的申请的 `chunk` 最小的大小是 MINISIZE，所以对其进行比较，如果不满足最低要求，即直接分配 MINISIZE 字节。
+> 4. 如果前一条的比较结果是大于 MINISIZE， 由于系统中申请的 `chunk`​ 需要进行对齐操作，所以这里需要加上 MALLOC_ALIGN_MASK 以便进行 `chunk` 的对齐
+>
+> # 标记位相关宏
+>
+> ```c
+> /* size field is or'ed with PREV_INUSE when previous adjacent chunk in use */
+> #define PREV_INUSE 0x1
+>
+> /* extract inuse bit of previous chunk */
+> #define prev_inuse(p) ((p)->mchunk_size & PREV_INUSE)
+>
+> /* size field is or'ed with IS_MMAPPED if the chunk was obtained with mmap() */
+> #define IS_MMAPPED 0x2
+>
+> /* check for mmap()'ed chunk */
+> #define chunk_is_mmapped(p) ((p)->mchunk_size & IS_MMAPPED)
+>
+> /* size field is or'ed with NON_MAIN_ARENA if the chunk was obtained
+>    from a non-main arena.  This is only set immediately before handing
+>    the chunk to the user, if necessary.  */
+> #define NON_MAIN_ARENA 0x4
+>
+> /* Check for chunk from main arena.  */
+> #define chunk_main_arena(p) (((p)->mchunk_size & NON_MAIN_ARENA) == 0)
+>
+> /* Mark a chunk as not being on the main arena.  */
+> #define set_non_main_arena(p) ((p)->mchunk_size |= NON_MAIN_ARENA)
+>
+> /*
+>    Bits to mask off when extracting size
+>    Note: IS_MMAPPED is intentionally not masked off from size field in
+>    macros for which mmapped chunks should never be seen. This should
+>    cause helpful core dumps to occur if it is tried by accident by
+>    people extending or adapting this malloc.
+>  */
+> #define SIZE_BITS (PREV_INUSE | IS_MMAPPED | NON_MAIN_ARENA)
+> ```
+> # 获取 chunk size
+>
+> ```c
+> /* Get size, ignoring use bits */
+> #define chunksize(p) (chunksize_nomask(p) & ~(SIZE_BITS))
+>
+> /* Like chunksize, but do not mask SIZE_BITS.  */
+> #define chunksize_nomask(p) ((p)->mchunk_size)
+> ```
+> # 获取下一个物理相邻的 chunk
+>
+> ```c
+> /* Ptr to next physical malloc_chunk. */
+> #define next_chunk(p) ((mchunkptr)(((char *) (p)) + chunksize(p)))
+> ```
+> # 获取前一个 chunk 的信息
+>
+> ```c
+> /* Size of the chunk below P.  Only valid if !prev_inuse (P).  */
+> #define prev_size(p) ((p)->mchunk_prev_size)
+>
+> /* Set the size of the chunk below P.  Only valid if !prev_inuse (P).  */
+> #define set_prev_size(p, sz) ((p)->mchunk_prev_size = (sz))
+>
+> /* Ptr to previous physical malloc_chunk.  Only valid if !prev_inuse (P).  */
+> #define prev_chunk(p) ((mchunkptr)(((char *) (p)) - prev_size(p)))
+> ```
+> # 当前 chunk 使用状态的相关操作
+>
+> ```c
+> /* extract p's inuse bit */
+> #define inuse(p)                                                               \
+>     ((((mchunkptr)(((char *) (p)) + chunksize(p)))->mchunk_size) & PREV_INUSE)
+>
+> /* set/clear chunk as being inuse without otherwise disturbing */
+> #define set_inuse(p)                                                           \
+>     ((mchunkptr)(((char *) (p)) + chunksize(p)))->mchunk_size |= PREV_INUSE
+>
+> #define clear_inuse(p)                                                         \
+>     ((mchunkptr)(((char *) (p)) + chunksize(p)))->mchunk_size &= ~(PREV_INUSE)
+> ```
+> # 设置 chunk 的 size 字段
+>
+> ```c
+> /* Set size at head, without disturbing its use bit */
+> // SIZE_BITS = 7
+> #define set_head_size(p, s)                                                    \
+>     ((p)->mchunk_size = (((p)->mchunk_size & SIZE_BITS) | (s)))
+>
+> /* Set size/use field */
+> #define set_head(p, s) ((p)->mchunk_size = (s))
+>
+> /* Set size at footer (only when chunk is not in use) */
+> #define set_foot(p, s)                                                         \
+>     (((mchunkptr)((char *) (p) + (s)))->mchunk_prev_size = (s))
+> ```
+> # 获取指定偏移的 chunk
+>
+> ```c
+> /* Treat space at ptr + offset as a chunk */
+> #define chunk_at_offset(p, s) ((mchunkptr)(((char *) (p)) + (s)))
+> ```
+> # 制定偏移处 chunk 使用状态的相关操作
+>
+> ```c
+> /* check/set/clear inuse bits in known places */
+> #define inuse_bit_at_offset(p, s)                                              \
+>     (((mchunkptr)(((char *) (p)) + (s)))->mchunk_size & PREV_INUSE)
+>
+> #define set_inuse_bit_at_offset(p, s)                                          \
+>     (((mchunkptr)(((char *) (p)) + (s)))->mchunk_size |= PREV_INUSE)
+>
+> #define clear_inuse_bit_at_offset(p, s)                                        \
+>     (((mchunkptr)(((char *) (p)) + (s)))->mchunk_size &= ~(PREV_INUSE))
+> ```
