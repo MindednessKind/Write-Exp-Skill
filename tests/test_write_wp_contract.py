@@ -4,7 +4,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 WRITE_WP = ROOT / "write-wp"
-WRITE_WP_MIRROR = ROOT / "Write-WP"
+WRITE_WP_MIRROR = ROOT / "Write-WP-Skill"
 WRITE_WP_SHARED = ROOT / "_shared" / "write-wp"
 
 

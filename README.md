@@ -18,7 +18,7 @@ Restart Codex after cloning.
 ## Additional Skill
 
 This repository also ships `write-wp/` as a separate skill directory.
-For installers such as `cc-switch` that prefer a nested compatibility directory, `Write-WP/` mirrors the same skill.
+For installers such as `cc-switch` that prefer a nested compatibility directory, `Write-WP-Skill/` mirrors the same skill.
 
 To install it from this checkout:
 
@@ -46,7 +46,7 @@ Restart Codex after updating.
 
 - The repository root remains the canonical install target for `write-exp`.
 - `write-wp/` is a standalone sibling skill with its own references and sample library.
-- `Write-WP/` is the compatibility mirror for `write-wp/`.
+- `Write-WP-Skill/` is the compatibility mirror for `write-wp/`.
 - `Write-Exp-Skill/` and `write-exp/` are compatibility mirrors for installers that expect a nested skill directory.
 - The `write-exp` implementation is deduplicated under `_shared/write-exp/`, and the root plus both compatibility directories point to that shared source.
-- The `write-wp` canonical source lives under `_shared/write-wp/`, and both `write-wp/` and `Write-WP/` are physical compatibility copies kept in sync for installers that do not follow symlinks.
+- The `write-wp` canonical source lives under `_shared/write-wp/`, and both `write-wp/` and `Write-WP-Skill/` are physical compatibility copies kept in sync for installers that do not follow symlinks.
