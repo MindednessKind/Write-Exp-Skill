@@ -49,4 +49,4 @@ Restart Codex after updating.
 - `Write-WP/` is the compatibility mirror for `write-wp/`.
 - `Write-Exp-Skill/` and `write-exp/` are compatibility mirrors for installers that expect a nested skill directory.
 - The `write-exp` implementation is deduplicated under `_shared/write-exp/`, and the root plus both compatibility directories point to that shared source.
-- The `write-wp` implementation is deduplicated under `_shared/write-wp/`, and both `write-wp/` and `Write-WP/` point to that shared source.
+- The `write-wp` canonical source lives under `_shared/write-wp/`, and both `write-wp/` and `Write-WP/` are physical compatibility copies kept in sync for installers that do not follow symlinks.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Write-WP"
+  short_description: "Write CTF and pwn writeups in the user's SiYuan-derived style."
+  default_prompt: "Write a CTF or pwn writeup in the user's Write-WP style, with concrete reasoning, exploit details, and a natural blog tone."

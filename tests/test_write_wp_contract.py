@@ -5,6 +5,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 WRITE_WP = ROOT / "write-wp"
 WRITE_WP_MIRROR = ROOT / "Write-WP"
+WRITE_WP_SHARED = ROOT / "_shared" / "write-wp"
 
 
 def _read(path: Path) -> str:
@@ -26,6 +27,10 @@ class WriteWpContractTests(unittest.TestCase):
             "references/sample-library/index.md",
         ]
         for rel_path in mirrored_paths:
+            self.assertEqual(
+                _read(WRITE_WP / rel_path),
+                _read(WRITE_WP_SHARED / rel_path),
+            )
             self.assertEqual(
                 _read(WRITE_WP / rel_path),
                 _read(WRITE_WP_MIRROR / rel_path),
